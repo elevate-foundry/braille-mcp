@@ -1,18 +1,13 @@
 import { spawn } from 'child_process';
 
-// 'a'=0b100000=32, 'c'=0b100100=36
-// AND(32,36) = 32 = 'a' (exact), XOR(32,36) = 4 (invalid — test nearest)
 const msgs = [
   { jsonrpc:'2.0', id:1, method:'initialize', params:{ protocolVersion:'2024-11-05', capabilities:{}, clientInfo:{name:'test',version:'1'} } },
-  { jsonrpc:'2.0', id:2, method:'tools/call', params:{ name:'gf2_mul',    arguments:{ a:32, b:36 } } },        // AND(a,c) = 32
-  { jsonrpc:'2.0', id:3, method:'tools/call', params:{ name:'gf2_decode', arguments:{ a:32, mode:'exact' } } }, // should be 'a'
-  { jsonrpc:'2.0', id:4, method:'tools/call', params:{ name:'gf2_add',    arguments:{ a:32, b:36 } } },        // XOR(a,c) = 4
-  { jsonrpc:'2.0', id:5, method:'tools/call', params:{ name:'gf2_decode', arguments:{ a:4,  mode:'exact' } } }, // invalid
-  { jsonrpc:'2.0', id:6, method:'tools/call', params:{ name:'gf2_decode', arguments:{ a:4,  mode:'nearest' } } }, // nearest neighbor
-  { jsonrpc:'2.0', id:7, method:'tools/call', params:{ name:'gf2_valid_cells', arguments:{} } },
+  { jsonrpc:'2.0', id:2, method:'tools/call', params:{ name:'rule110_step',   arguments:{ tape:'00010000' } } },
+  { jsonrpc:'2.0', id:3, method:'tools/call', params:{ name:'rule110_verify', arguments:{} } },
+  { jsonrpc:'2.0', id:4, method:'tools/call', params:{ name:'turing_test',    arguments:{} } },
 ];
 
-const proc = spawn('node', ['/Users/ryanbarrett/mcp-servers/braille-algebra/index.js'], {
+const proc = spawn('node', ['/Users/ryanbarrett/mcp-servers/braille-turing/index.js'], {
   stdio: ['pipe','pipe','pipe']
 });
 
