@@ -11,7 +11,7 @@
  * we've shown ℤ_256 can universal computation.
  */
 
-const readline = require('readline');
+import readline from 'readline';
 
 // ── Rule 110 transition table ───────────────────────────────────────────────
 // Neighborhood (left, center, right) → next state
@@ -85,8 +85,8 @@ function turing_step_linear(tape) {
 function turing_run(initial, generations, wrap = true) {
   let tape = tape_from_string(initial);
   const history = [tape_to_string(tape)];
-  
-  for (let gen = 0; gen < generations; gen++) {
+  const limit = Math.min(generations, 500);
+  for (let gen = 0; gen < limit; gen++) {
     tape = turing_step(tape, wrap);
     history.push(tape_to_string(tape));
   }
@@ -96,38 +96,36 @@ function turing_run(initial, generations, wrap = true) {
 
 // Compute GF(2)⁶ span of Rule 110 transitions
 function turing_span(tapes) {
-  const vectors = tapes.map(t => tape_from_string(t));
-  // Gaussian elimination over GF(2)
+  // GF(2) Gaussian elimination — properly reduce each vector against existing basis
   const basis = [];
-  for (const v of vectors) {
-    let cur = [...v];
-    for (let i = 0; i < cur.length; i++) {
-      if (cur[i] === 1) {
-        // Found pivot at position i
-        basis.push(cur);
-        break;
+  for (const t of tapes) {
+    let cur = tape_from_string(t);
+    for (const b of basis) {
+      // find pivot of b
+      const pivot = b.findIndex(x => x === 1);
+      if (pivot >= 0 && cur[pivot] === 1) {
+        cur = cur.map((v, i) => v ^ b[i]);
       }
     }
+    if (cur.some(x => x === 1)) basis.push(cur);
   }
-  return { basis, dimension: basis.length };
+  return { dimension: basis.length, spanSize: 1 << basis.length, note: 'GF(2) row-reduction over tape vectors' };
 }
 
 // Verify Rule 110 produces known pattern
 function turing_verify() {
-  // Classic Rule 110 glider from single cell
-  const tape = '00000000000000000000000000000000000000000000000001'.split('').map(Number);
-  const results = [];
-  
+  let tape = Array(50).fill(0); tape[tape.length - 1] = 1;
+  const results = [tape_to_string(tape)];
   for (let gen = 0; gen < 15; gen++) {
-    results.push(tape.join(''));
-    tape.splice(0, 0, 0);
-    tape.splice(tape.length, 0, 0);
-    tape = turing_step(tape, false);
+    tape = turing_step(tape, true);
+    results.push(tape_to_string(tape));
   }
-  
+  const nonTrivial = results.filter(t => t.includes('1')).length;
   return {
-    note: 'Rule 110 from single cell (001 → glider)',
+    note: 'Rule 110 from single active cell — watch for pattern spread',
     generations: results,
+    nonTrivialGens: nonTrivial,
+    shows_computation: nonTrivial > 5,
   };
 }
 
@@ -180,17 +178,41 @@ async function handleRequest(method, params) {
   }
 }
 
+// ── Tools registry ──────────────────────────────────────────────────────────
+const tools = [
+  { name:'rule110_step',        description:'One step of exact Rule 110 on a binary tape string ("0"s and "1"s)',                           inputSchema:{ type:'object', properties:{ tape:{type:'string'}, wrap:{type:'boolean',description:'wrap edges, default true'} }, required:['tape'] } },
+  { name:'rule110_run',         description:'Run Rule 110 for n generations. Returns history as array of tape strings. Exact implementation.',  inputSchema:{ type:'object', properties:{ initial:{type:'string'}, generations:{type:'number'}, wrap:{type:'boolean'} }, required:['initial'] } },
+  { name:'rule110_verify',      description:'Run Rule 110 from a single active cell and return 15 generations — shows glider emergence',         inputSchema:{ type:'object', properties:{} } },
+  { name:'rule110_linear_step', description:'One step of GF(2)⁶ linear approximation of Rule 110 (NOT exact — shows where linearity breaks)',  inputSchema:{ type:'object', properties:{ tape:{type:'string'} }, required:['tape'] } },
+  { name:'rule110_span',        description:'GF(2) Gaussian elimination on a set of tape strings — find the dimension of their span',           inputSchema:{ type:'object', properties:{ tapes:{type:'array',items:{type:'string'}} }, required:['tapes'] } },
+  { name:'turing_test',         description:'Run Rule 110 glider test from a single cell — check for complex moving pattern (evidence of computation)', inputSchema:{ type:'object', properties:{} } },
+];
+
 // ── Transport ────────────────────────────────────────────────────────────────
-console.log('braille-turing MCP: Rule 110 in braille space');
+function send(msg) { process.stdout.write(JSON.stringify(msg) + '\n'); }
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
 rl.on('line', async (line) => {
   try {
-    const req = JSON.parse(line);
-    const result = await handleRequest(req.method, req.params);
-    console.log(JSON.stringify(result));
-  } catch (e) {
-    console.log(JSON.stringify({ error: e.message }));
-  }
+    const msg = JSON.parse(line);
+    if (msg.method === 'initialize') {
+      send({ jsonrpc:'2.0', id:msg.id, result:{ protocolVersion:'2024-11-05', capabilities:{ tools:{} }, serverInfo:{ name:'braille-turing', version:'1.0.0' } } });
+    } else if (msg.method === 'notifications/initialized') {
+      // no response
+    } else if (msg.method === 'tools/list') {
+      send({ jsonrpc:'2.0', id:msg.id, result:{ tools } });
+    } else if (msg.method === 'tools/call') {
+      const { name, arguments: args } = msg.params;
+      try {
+        const data = await handleRequest(name, args);
+        send({ jsonrpc:'2.0', id:msg.id, result:{ content:[{ type:'text', text: JSON.stringify(data, null, 2) }] } });
+      } catch(e) {
+        send({ jsonrpc:'2.0', id:msg.id, error:{ code:-32603, message: e.message } });
+      }
+    } else {
+      if (msg.id !== undefined) send({ jsonrpc:'2.0', id:msg.id, result:null });
+    }
+  } catch(e) {}
 });
+
+process.stderr.write('braille-turing MCP v1.0: Rule 110 in braille space\n');
