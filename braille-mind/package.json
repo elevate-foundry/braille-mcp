@@ -1,0 +1,13 @@
+{
+  "name": "braille-mind",
+  "version": "1.0.0",
+  "description": "Braille encoding MCP server using Braided Braille model",
+  "type": "module",
+  "bin": {
+    "braille-mind": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {}
+}
