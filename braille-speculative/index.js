@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import readline from 'readline';
 
 const BRAILLE_UNICODE_START = 0x2800;
 const ENCODING = {
@@ -148,17 +149,39 @@ async function handleRequest(method, params) {
   }
 }
 
-const readline = require('readline');
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const tools = [
+  { name:'text_to_dots',  description:'Convert text to braille dot arrays (0-63 per cell)',                                          inputSchema:{ type:'object', properties:{ text:{type:'string'} }, required:['text'] } },
+  { name:'dots_to_text',  description:'Convert dot arrays back to text',                                                               inputSchema:{ type:'object', properties:{ dots:{type:'array',items:{type:'number'}} }, required:['dots'] } },
+  { name:'find_nearby',   description:'Find valid braille words within Hamming distance of input text (1-bit flips per cell)',          inputSchema:{ type:'object', properties:{ text:{type:'string'}, maxDist:{type:'number'} }, required:['text'] } },
+  { name:'fuzzy_decode',  description:'Ranked candidates by braille proximity score — useful after algebraic ops that leave valid space', inputSchema:{ type:'object', properties:{ text:{type:'string'}, maxDist:{type:'number'} }, required:['text'] } },
+  { name:'project',       description:'Project textA onto textB dot subspace (AND per cell)',                                          inputSchema:{ type:'object', properties:{ textA:{type:'string'}, textB:{type:'string'} }, required:['textA','textB'] } },
+  { name:'solve',         description:'Find XOR transform that maps textA to targetC in braille dot space',                            inputSchema:{ type:'object', properties:{ textA:{type:'string'}, targetC:{type:'string'} }, required:['textA','targetC'] } },
+];
 
-console.log('Speculative decoder ready');
+function send(msg) { process.stdout.write(JSON.stringify(msg) + '\n'); }
 
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
 rl.on('line', async (line) => {
   try {
-    const req = JSON.parse(line);
-    const result = await handleRequest(req.method, req.params);
-    console.log(JSON.stringify(result));
-  } catch (e) {
-    console.log(JSON.stringify({ error: e.message }));
-  }
+    const msg = JSON.parse(line);
+    if (msg.method === 'initialize') {
+      send({ jsonrpc:'2.0', id:msg.id, result:{ protocolVersion:'2024-11-05', capabilities:{ tools:{} }, serverInfo:{ name:'braille-speculative', version:'1.0.0' } } });
+    } else if (msg.method === 'notifications/initialized') {
+      // no response
+    } else if (msg.method === 'tools/list') {
+      send({ jsonrpc:'2.0', id:msg.id, result:{ tools } });
+    } else if (msg.method === 'tools/call') {
+      const { name, arguments: args } = msg.params;
+      try {
+        const data = await handleRequest(name, args);
+        send({ jsonrpc:'2.0', id:msg.id, result:{ content:[{ type:'text', text: JSON.stringify(data, null, 2) }] } });
+      } catch(e) {
+        send({ jsonrpc:'2.0', id:msg.id, error:{ code:-32603, message: e.message } });
+      }
+    } else {
+      if (msg.id !== undefined) send({ jsonrpc:'2.0', id:msg.id, result:null });
+    }
+  } catch(e) {}
 });
+
+process.stderr.write('braille-speculative MCP v1.0 ready\n');
